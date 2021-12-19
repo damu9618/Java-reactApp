@@ -4,7 +4,7 @@
 # https://docs.microsoft.com/azure/devops/pipelines/languages/java
 
 trigger:
-- pipelinetest
+- main
 
 pool:
   vmImage: ubuntu-latest
@@ -21,4 +21,19 @@ steps:
     testResultsFiles: '**/surefire-reports/TEST-*.xml'
     goals: 'package'
 
+- task: SonarCloudPrepare@1
+  inputs:
+    SonarCloud: 'SonarConnection'
+    organization: 'aztraindec06'
+    scannerMode: 'Other'
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: '''$(system.defaultworkingdirectory)'''
+    Contents: '**/*.jar'
+    TargetFolder: '''$(build.artifactstagingdirectory)'''
 
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'drop'
+    publishLocation: 'Container'
