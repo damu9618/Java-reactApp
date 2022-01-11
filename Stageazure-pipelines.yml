@@ -1,0 +1,106 @@
+trigger:
+- develop
+- MAINT
+- QA
+- PROD
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+- stage: Build
+  jobs:
+  - job: buildAndPublish
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '14.x'
+      displayName: Install Node.js
+    
+    - script: |
+        sudo apt install zip unzip
+        npm install -g @angular/cli
+        cd $(System.DefaultWorkingDirectory)/frontend
+      displayName: Install required packages
+
+    - script: |
+        rm -rf frontend/dist
+      displayName: Clearing pre-existing build
+
+    - script: |
+        cd frontend
+        npm run build
+      displayName: Build Frontend
+
+    
+    - task: ArchiveFiles@2
+      displayName: 'Archive files'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)/backend'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+        replaceExistingArchive: true
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+
+- stage: DeployMaint
+  dependsOn: Build
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/MAINT')
+  jobs:
+  - deployment: maintenance
+    environment: Maintenance
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebApp@1
+            displayName: 'Azure Web App Deploy'
+            inputs:
+              azureSubscription: '<service-connection-name>'
+              appType: webAppLinux
+              appName: '<maint-app-name>'
+              runtimeStack: 'NODE|14-lts'
+              package: $(Pipeline.Workspace)/drop/$(Build.BuildId).zip
+
+- stage: DeployQA
+  dependsOn: DeployMaint
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/QA')
+  jobs:
+  - deployment: qa
+    environment: QA
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebApp@1
+            displayName: 'Azure Web App Deploy'
+            inputs:
+              azureSubscription: '<service-connection-name>'
+              appType: webAppLinux
+              appName: '<qa-app-name>'
+              runtimeStack: 'NODE|14-lts'
+              package: $(Pipeline.Workspace)/drop/$(Build.BuildId).zip
+
+- stage: DeployProd
+  dependsOn: DeployQA
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/PROD')
+  jobs:
+  - deployment: prod
+    environment: Production
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebApp@1
+            displayName: 'Azure Web App Deploy'
+            inputs:
+              azureSubscription: '<service-connection-name>'
+              appType: webAppLinux
+              appName: '<prod-app-name>'
+              runtimeStack: 'NODE|14-lts'
+              package: $(Pipeline.Workspace)/drop/$(Build.BuildId).zip
